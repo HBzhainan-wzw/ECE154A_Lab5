@@ -237,7 +237,7 @@ module datapath(input        clk, reset,
 
     // ALU logic
     mux2 #(32) srcamux(pc, A, alusrca, srca);
-    wire [31:0] four = 32'b00000000000000000000000000000100;
+    wire four = 32'b00000000000000000000000000000100;
     mux4 #(32) srcbmux(B, four, signimm, signimmsh, alusrcb, srcb);
     ALU alu(srca, srcb, alucontrol, alures, zero);
 
