@@ -54,7 +54,7 @@ module maindec(input clk, reset,
                 output  iord, alusrca,
                 output  [1:0] aluop, pcsrc, alusrcb); 
 
-    reg[3:0] current_state, next_state; //hold curretn and next state 0 to 11
+    reg[3:0] current_state, next_state; //hold current and next state 0 to 11
 
 	parameter Fetch = 4'b0000;
 	parameter Decode = 4'b0001;
@@ -69,12 +69,18 @@ module maindec(input clk, reset,
 	parameter AddiWB = 4'b1010;
 	parameter JEx = 4'b1011;
 
-	always@  (posedge  clk) begin  //detemrines and gets the next state
-		if(reset == 1'b1)
+	always@  (posedge  clk) begin  //determines and gets the next state
+		if(reset == 1'b1) begin
 			current_state <= Fetch; //reset to s0 (fetch)
-		else  begin
+		end else  begin
 			current_state <= next_state; //sets curr state to next
-			
+		end
+    end
+
+	always@(negedge clk) begin
+		if(reset == 1'b1) begin
+			next_state <= Decode;
+		end else  begin
 			case(current_state) //get new next state based on current state
 				default: next_state = Fetch; //->s0 (fetch)
 				Fetch: next_state = Decode; //->s1 (decode)
@@ -103,7 +109,7 @@ module maindec(input clk, reset,
 					
 			endcase
 		end
-    end
+	end
 
 	reg [14:0] controls;
 	assign {pcwrite, memwrite, irwrite, regwrite, alusrca, branch,
@@ -112,69 +118,20 @@ module maindec(input clk, reset,
 	//set outputs for given state
 	always@ (current_state) begin
   
-		case (current_state) //FSM 
-			Fetch:  controls <= 15'b101000000010000; /*begin
-				iord <= 1'b0;
-				alusrca <= 1'b0;
-				alusrcb <= 2'b01;
-				aluop <= 2'b00;
-				pcsrc <= 2'b00;
-				irwrite <= 1'b1;
-				pcwrite <= 1'b1;
-				end*/
-			Decode: controls <= 15'b000000000110000;/*begin
-				alusrca <= 1'b0;
-				alusrcb <= 2'b01;
-				aluop <= 2'b00;
-				end*/
-			MemAdr: controls <= 15'b000010000100000;/*begin
-				alusrca <= 1'b1;
-				alusrcb <= 2'b10;
-				aluop <= 2'b00;
-				end*/
-			MemRd: controls <= 15'b000000100000000;/*begin
-				iord <= 1'b1;
-				end*/
-			MemWB: controls <= 15'b000100010000000;/*begin
-				regdst <= 1'b0;
-				memtoreg <= 1'b1;
-				regwrite  <= 1'b1;
-				end*/
-			MemWr: controls <= 15'b010000100000000;/*begin
-				iord <= 1'b1;
-				memwrite <= 1'b1;
-				end*/
-			RtypeEx: controls <= 15'b000010000000010;/*begin
-				alusrca <= 1'b1;
-				alusrcb <= 2'b00;
-				aluop <= 2'b10;
-				end*/
-			RtypeWB: controls <= 15'b000100001000000;/*begin
-				regdst <= 1'b1;
-				memtoreg <= 1'b0;
-				regwrite  <= 1'b1;
-				end*/
-			BeqEx: controls <= 15'b000011000000101;/*begin
-				alusrca <= 1'b1;
-				alusrcb <= 2'b00;
-				aluop <= 2'b01;
-				pcsrc <= 2'b01;
-				branch <= 1'b1;
-				end*/
-			AddiEx: controls <= 15'b000010000100000;/*begin
-				alusrca <= 1'b1;
-				alusrcb <= 2'b10;
-				aluop <= 2'b00;
-				end*/
-			AddiWB: controls <= 15'b0001000000000000;/*begin
-				regdst <= 1'b0;
-				memtoreg <= 1'b0;
-				regwrite  <= 1'b1;
-				end*/
-			JEx: controls <= 15'b100000000001000;/*begin
-				pcsrc <= 2'b10;
-				pcwrite <= 1'b1;
-				end*/
+		case (current_state)  
+			// Determine controls for each state based on table 4 
+			Fetch:  controls <= 15'b101000000010000; 
+			Decode: controls <= 15'b000000000110000;
+			MemAdr: controls <= 15'b000010000100000;
+			MemRd: controls <= 15'b000000100000000;
+			MemWB: controls <= 15'b000100010000000;
+			MemWr: controls <= 15'b010000100000000;
+			RtypeEx: controls <= 15'b000010000000010;
+			RtypeWB: controls <= 15'b000100001000000;
+			BeqEx: controls <= 15'b000011000000101;
+			AddiEx: controls <= 15'b000010000100000;
+			AddiWB: controls <= 15'b000100000000000;
+			JEx: controls <= 15'b100000000001000;
 		endcase
 	end
 
@@ -210,106 +167,67 @@ module datapath(input        clk, reset,
                 input [31:0] readdata);
 
 // **PUT YOUR CODE HERE** 
-    wire [4:0] writereg;
-    wire [31:0] pcnext, instr;
-    wire [31:0] signimm, signimmsh;
-    wire [31:0] srca, srcb;
-    wire [31:0] result, pcjump, pc;
-    wire [31:0] data, rd1, rd2, A, B, aluout, alures;
-    wire [27:0] jumpsh;
 
-    // next PC logic
-    flopren #(32) pcreg(clk, reset, pcnext, pcen, pc);
-    mux2 #(32) pcmux(pc, aluout, iord, adr);
+	wire [4:0] writereg;
+	wire [31:0] wd3result,pcnext;
+	wire [31:0] pc;
+	wire [31:0] signimm, signimmsh;
+	wire [31:0] srca, srcb;
+	wire [31:0] regf_rd1, regf_rd2; // from register file ouput
+	wire [31:0] a, b; //a and b from reg file after register
+	
+    wire [31:0] aluresult;
+	wire [31:0] aluout;
 
-    // register file logic
-    regfile rf(clk, regwrite, instr[25:21], instr[20:16],
-                writereg, result, rd1, rd2);
-    flopren #(32) instrreg(clk, reset, readdata, irwrite, instr);
-    flopr #(32) datareg(clk, reset, readdata, data);
-    mux2 #(5) wrmux(instr[20:16], instr[15:11],
-                    regdst, writereg);
-    mux2 #(32)  wd3mux(aluout, readdata, memtoreg, result);
-    signext     se(instr[15:0], signimm);
-    sl2 #(32) immsh(signimm, signimmsh);
-    flopr #(32) rd1reg(clk, reset, rd1, A);
-    flopr #(32) rd2reg(clk, reset, rd2, B);
+	wire [31:0] instr; //instr wire after irwrite reg
+	wire [31:0] data; //data wire after register for wd3
 
-    // ALU logic
-    mux2 #(32) srcamux(pc, A, alusrca, srca);
-    wire [31:0] four = 32'b00000000000000000000000000000100;
-    mux4 #(32) srcbmux(B, four, signimm, signimmsh, alusrcb, srcb);
-    ALU alu(srca, srcb, alucontrol, alures, zero);
+	
+	
+	//PC logic
+	enr #(32) pcreg(clk,reset,pcnext,pcen,pc); //pc register controled by pcen
+	mux2 #(32) iordreg(pc, aluout, iord, adr); //mux that determines adr controlled by iord
+	
+	//instruction logic
+	enr #(32) instrreg(clk,reset,readdata,irwrite,instr); // irwrite enable reg for instr
+	flopr #(32) datareg(clk,reset,readdata,data);
 
-    // ALUOut logic
-    flopr #(32) aluoutreg(clk, reset, alures, aluout);
-    sl2 #(28) jumpshift({2'b00, instr[25:0]}, jumpsh);
-    mux4 #(32) aluoutmux(alures, aluout, {pc[31:28], jumpsh}, 32'b0, pcsrc, pcnext);
+	assign op = instr[31:26];
+	assign funct = instr[5:0];
+
+	signext	se(instr[15:0], signimm); //sign extension
+	sl2 #(32) immsh(signimm, signimmsh); //sign extension shift 2
+
+
+	//reg file logic
+	mux2 #(5) wrmux(instr[20:16], instr[15:11], //mux for A3 in regfile
+                    	regdst, writereg);
+	mux2 #(32) wd3mux(aluout, data, 	//mux for wd3 input to regfile
+			memtoreg, wd3result);
+	regfile rf(clk, regwrite, instr[25:21], instr[20:16],
+                writereg, wd3result, regf_rd1, regf_rd2);
+	
+	flopr #(32) a_reg(clk,reset, regf_rd1, a); //a register control
+	flopr #(32) b_reg(clk,reset, regf_rd2, b); //b register control
+	assign writedata = b;
+	
+	//ALU logic
+	//wire [31:0] fourwire = 1'd4;
+	mux2 #(32) srca_mux(pc,a,alusrca,srca); //mux determine scra
+	mux4 #(32) srcb_mux(b, 32'd4, signimm,signimmsh,alusrcb,srcb); //mux determine scrb
+	ALU        alu(srca, srcb, alucontrol, aluresult, zero); //alu
+	flopr #(32) alureg(clk,reset,aluresult,aluout); //aluresult register
+	
+	//jump logic
+	wire [27:0] endof_pcjump;
+	sl2 #(28) pcjumpshift({2'b00,instr[25:0]}, endof_pcjump); // shift of instr to get end bits of pcjump
+	wire [31:0] nullval = 32'b0;
+	mux4 #(32) threetoonemux(aluresult,aluout,{pc[31:28],endof_pcjump}, nullval,pcsrc, pcnext);
+	
 
 endmodule
 
-module ALU (input [31:0] a, b, input [2:0] f, output reg [31:0] y, output zero) ;
-  wire [31:0] BB ;
-  wire [31:0] S ;
-  wire   cout ;
-  
-  assign BB = (f[2]) ? ~b : b ;
-  assign {cout, S} = f[2] + a + BB ;
-  always @ * begin
-   case (f[1:0]) 
-    2'b00 : y <= a & BB ;
-    2'b01 : y <= a | BB ;
-    2'b10 : y <= S ;
-    2'b11 : y <= {31'd0, S[31]};
-   endcase
-  end 
-  
-  assign zero = (y == 0) ;
-   
- endmodule
-
-module regfile(input  clk,
-                input  we3,
-                input  [4:0] ra1, ra2, wa3,
-                input  [31:0] wd3,
-                output [31:0] rd1, rd2);
-
-    reg [31:0] rf[31:0];
-
-    // three ported register file
-    // read two ports combinationally
-    // write third port on rising edge of clk
-    // register 0 hardwired to 0
-    // note: for pipelined processor, write third port
-    // on falling edge of clk
-
-    always @(posedge clk)
-        if (we3) rf[wa3] <= wd3;
-    
-    assign rd1 = (ra1 != 0) ? rf[ra1] : 0;
-    assign rd2 = (ra2 != 0) ? rf[ra2] : 0;
-endmodule
-
-module adder(input [31:0] a, b,
-            output [31:0] y);
-    
-    assign y = a + b;
-endmodule
-
-module sl2#(parameter WIDTH = 32)
-            (input  [WIDTH-1:0] a,
-            output  [WIDTH-1:0] y);
-    // shift left by 2
-    assign y = {a[WIDTH-3:0], 2'b00};
-endmodule
-
-module signext(input  [15:0] a,
-                output  [31:0] y);
-    
-    assign y = {{16{a[15]}}, a};
-endmodule
-
-module flopr #(parameter WIDTH = 8)
+module flopr #(parameter WIDTH = 8) //registers no enable
                 (input clk, reset,
                 input [WIDTH-1:0] d,
                 output reg[WIDTH-1:0] q);
@@ -317,20 +235,50 @@ module flopr #(parameter WIDTH = 8)
     always @(posedge clk, posedge reset)
         if (reset) q <= 0;
         else q <= d;
+
 endmodule
 
-module flopren #(parameter WIDTH = 8)
+module enr #(parameter WIDTH = 8) //enabled controlled registers 
                 (input clk, reset,
                 input [WIDTH-1:0] d,
-                input en,
+		        input en,
                 output reg[WIDTH-1:0] q);
 
     always @(posedge clk, posedge reset)
         if (reset) q <= 0;
-        else if (en) q <= d;
+        else if(en) q <= d;
+
 endmodule
 
-module mux2 #(parameter WIDTH = 8)
+module regfile(input  clk, ///regfile pulled from single cycle
+                input  we3,
+                input  [4:0] ra1, ra2, wa3,
+                input  [31:0] wd3,
+                output [31:0] rd1, rd2);
+
+    reg [31:0] rf[31:0];
+    always @(posedge clk)
+        if (we3) rf[wa3] <= wd3;
+    
+    assign rd1 = (ra1 != 0) ? rf[ra1] : 0;
+    assign rd2 = (ra2 != 0) ? rf[ra2] : 0;
+
+endmodule
+
+module sl2 #(parameter WIDTH = 8)
+		(input  [WIDTH-1:0] a, //shift left by 2 module
+            output  [WIDTH-1:0] y);
+    // shift left by 2
+    assign y = {a[WIDTH-3:0], 2'b00};
+endmodule
+
+module signext(input  [15:0] a, ///sign extend module
+                output  [31:0] y);
+    
+    assign y = {{16{a[15]}}, a};
+endmodule
+
+module mux2 #(parameter WIDTH = 8) //2 input mux module
                 (input [WIDTH-1:0] d0, d1,
                 input s,
                 output [WIDTH-1:0] y);
@@ -338,13 +286,11 @@ module mux2 #(parameter WIDTH = 8)
     assign y = s ? d1 : d0;
 endmodule
 
-module mux4 #(parameter WIDTH = 8)
-                (input [WIDTH-1:0] d0, d1, d2, d3,
-                input [1:0] s,
-                output [WIDTH-1:0] y);
-    
-    assign y = s[1] ? (s[0] ? d3 : d2) : (s[0] ? d0 : d1);
+module mux4 #(parameter WIDTH = 8) //4 to 1 mux
+		(input [WIDTH-1:0] d0, d1, d2, d3,
+		input [1:0]s,
+		output [WIDTH-1:0] y);
+
+	assign y = s[1] ? (s[0] ? d3 : d2) : (s[0] ? d1 : d0);
 
 endmodule
-
-
